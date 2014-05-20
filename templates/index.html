@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block content %}
+    <form>
+        <div class="row">
+            <div class="col-md-4">
+                    {{ form.agent_name.label }} {{ form.agent_name(class="form-control") }}
+                    {{ form.party_code.label }} {{ form.party_code(class="form-control") }}
+                    {{ form.channel_name.label }} {{ form.channel_name(class="form-control") }}
+            </div>
+            <div class="col-md-4">
+                    {{ form.nmi_mirn.label }} {{ form.nmi_mirn(class="form-control") }}
+                    {{ form.sale_status.label }} {{ form.sale_status(class="form-control") }}
+            </div>
+        </div>
+        <button type="submit" class="btn btn-primary">Search</button>
+    </form>
+    <ul class="pagination pagination-sm" style="float:right">
+        {% if page == 1 %} 
+            <li class="disabled"><span>&laquo;</span></li>
+        {% else %}
+            <li><a href="?{{ query_string }}&page={{ page - 1 }}">&laquo;</a></li>
+        {% endif %}
+        {% for p in pages %}
+            <li {% if p == page %}class="active"{% endif %}><a href="?{{ query_string }}&page={{p}}">{{ p }}</a></li>
+        {% endfor %}
+        {% if page == final_page %} 
+            <li class="disabled"><span>&raquo;</span></li>
+        {% else %}
+            <li><a href="?{{ query_string }}&page={{ page + 1 }}">&raquo;</a></li>
+        {% endif %}
+    </ul>
+    <table class="table table-hover">
+        <thead>
+            <tr>
+                <th>Channel</th>
+                <th>NMI/MIRN</th>
+                <th>Agent</th>
+                <th>Customer</th>
+                <th>Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for sale in sales %}
+                <tr class="clickable" href="/sale/{{ sale.id }}">
+                    <td>{{ sale.channel_name }}</td>
+                    <td>{{ sale.nmi_mirn }}</td>
+                    <td>{{ sale.agent_name }}</td>
+                    <td>{{ sale.party_code }}</td>
+                    <td>{{ sale.client_name }}</td>
+                    <td>{{ sale.sale_status }}</td>
+                    <td>{{ sale.loaded_date }}</td>
+                </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    <script>
+        $(function() {
+            $('.clickable').click(function() {
+                window.location.href = $(this).attr('href')
+            })
+        })
+    </script>
+{% endblock %}
