@@ -6,9 +6,10 @@ from wtforms import SelectField
 from wtforms.validators import DataRequired
 from wtforms.validators import Email
 from wtforms.validators import Optional
+from wtforms.ext.sqlalchemy.fields import QuerySelectField
 
 class SaleForm(Form):
-    agent_name = TextField('Agent Name', validators=[DataRequired()])
+    agent = QuerySelectField('Agent Name', validators=[DataRequired()])
     party_code = TextField('Party Code', validators=[DataRequired()])
     signed_date = DateField('Signed Date', validators=[DataRequired()])
     loaded_date = DateField('Loaded Date', validators=[DataRequired()])
@@ -59,7 +60,7 @@ class SaleForm(Form):
                 raise ValidationError('Commission value must be a number')
 
 class SearchForm(Form):
-    agent_name = TextField('Agent Name')
+    agent = QuerySelectField('Agent Name', allow_blank=True)
     party_code = TextField('Party Code')
     nmi_mirn = TextField('NMI/MIRN')
     channel_name = SelectField('Channel',

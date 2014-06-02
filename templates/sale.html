@@ -4,10 +4,10 @@
         {{ form.hidden_tag() }}
         <div class="row">
             <div class="col-md-6">
-                {% if form.agent_name.errors %}
-                    <ul class="errors">{% for error in form.agent_name.errors %}<li>{{ error }}</li>{% endfor %}</ul>
+                {% if form.agent.errors %}
+                    <ul class="errors">{% for error in form.agent.errors %}<li>{{ error }}</li>{% endfor %}</ul>
                 {% endif %}
-                {{ form.agent_name.label }} {{ form.agent_name(class="form-control") }}
+                {{ form.agent.label }} {{ form.agent(class="form-control") }}
                 {% if form.party_code.errors %}
                     <ul class="errors">{% for error in form.party_code.errors %}<li>{{ error }}</li>{% endfor %}</ul>
                 {% endif %}

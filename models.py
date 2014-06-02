@@ -1,4 +1,5 @@
 import datetime
+from sqlalchemy import Boolean
 from sqlalchemy import Column
 from sqlalchemy import Integer
 from sqlalchemy import String
@@ -10,10 +11,16 @@ from sqlalchemy import ForeignKey
 from sqlalchemy.orm import relationship
 from database import Base
 
+
+class AgentNotFoundError(Exception):
+    pass
+
+
 class Sale(Base):
     __tablename__ = 'sale'
     id = Column(Integer, primary_key=True)
-    agent_name = Column(String(255))
+    agent_id = Column(Integer, ForeignKey('agent.id'), nullable=False)
+    agent = relationship('Agent')
     postal_suburb = Column(String(100))
     annual_consumption = Column(Float, nullable=True)
     signed_date = Column(Date, nullable=True)
@@ -37,7 +44,12 @@ class Sale(Base):
                  channel_name=None, party_code=None, client_type=None, district_code=None, nmi_mirn=None,
                  product_type_code=None, clawback_value=None, sale_status=None):
 
-        self.agent_name = agent_name
+        agents = Agent.query.filter(Agent.lumo_name == agent_name)
+        if agents.count():
+            agent = agents.first()
+            self.agent_id = agent.id
+        else:
+            raise AgentNotFoundError
         self.commission_value = commission_value
         self.postal_suburb = postal_suburb
         self.annual_consumption = annual_consumption
@@ -57,7 +69,7 @@ class Sale(Base):
 
     def serialize(self):
         return {
-            'agent_name': self.agent_name,
+            'agent': self.agent,
             'postal_suburb': self.postal_suburb,
             'annual_consumption': self.annual_consumption,
             'signed_date': self.signed_date,
@@ -97,12 +109,14 @@ class Agent(Base):
     sidn = Column(String(10), unique=True)
     email = Column(String(100))
     phone = Column(String(10))
+    team = Column(String(100))
     start_date = Column(Date)
     end_date = Column(Date)
-    lumo_name = Column(String(255))
+    lumo_name = Column(String(255), unique=True)
+    siq = Column(Boolean, default=False)
 
     def __init__(self, first_name=None, last_name=None, sidn=None, email=None, phone=None,
-                 start_date=None, end_date=None, lumo_name=None):
+                 start_date=None, end_date=None, lumo_name=None, siq=None, team=None):
         self.first_name = first_name
         self.last_name = last_name
         self.sidn = sidn
@@ -111,3 +125,11 @@ class Agent(Base):
         self.start_date = start_date
         self.end_date = end_date
         self.lumo_name = lumo_name
+        self.siq = siq
+        self.team = team
+
+    def __str__(self):
+        return unicode(self)
+
+    def __unicode__(self):
+        return '{} {}'.format(self.first_name, self.last_name)

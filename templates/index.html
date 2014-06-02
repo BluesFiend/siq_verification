@@ -3,7 +3,7 @@
     <form>
         <div class="row">
             <div class="col-md-4">
-                    {{ form.agent_name.label }} {{ form.agent_name(class="form-control") }}
+                    {{ form.agent.label }} {{ form.agent(class="form-control") }}
                     {{ form.party_code.label }} {{ form.party_code(class="form-control") }}
                     {{ form.channel_name.label }} {{ form.channel_name(class="form-control") }}
             </div>
@@ -44,7 +44,7 @@
                 <tr class="clickable" href="/sale/{{ sale.id }}">
                     <td>{{ sale.channel_name }}</td>
                     <td>{{ sale.nmi_mirn }}</td>
-                    <td>{{ sale.agent_name }}</td>
+                    <td>{{ sale.agent.first_name }} {{ sale.agent.last_name }}</td>
                     <td>{{ sale.party_code }}</td>
                     <td>{{ sale.client_name }}</td>
                     <td>{{ sale.sale_status }}</td>

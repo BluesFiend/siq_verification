@@ -20,6 +20,7 @@ from forms import AgentSearchForm
 from forms import SaleForm
 from forms import SearchForm
 from models import Agent
+from models import AgentNotFoundError
 from models import Sale
 from models import SaleStatusHistory
 
@@ -38,7 +39,7 @@ def index():
     page = int(request.args.get('page', 1))
     offset = limit * (page - 1)
 
-    agent_name = request.args.get('agent_name')
+    agent = request.args.get('agent')
     party_code = request.args.get('party_code')
     channel_name = request.args.get('channel_name')
     nmi_mirn = request.args.get('nmi_mirn')
@@ -46,8 +47,9 @@ def index():
 
     sales = Sale.query
 
-    if agent_name:
-        sales = sales.filter(Sale.agent_name.like('%{}%'.format(agent_name)))
+    if agent and agent != '__None':
+        sales = sales.filter_by(agent_id=agent)
+        agent = Agent.query.get(agent)
     if channel_name:
         sales = sales.filter_by(channel_name=channel_name)
     if sale_status:
@@ -62,12 +64,13 @@ def index():
 
     pages = [x for x in range(1, total/limit + 2)]
 
-    form = SearchForm(agent_name=agent_name,
+    form = SearchForm(agent=agent,
                       channel_name=channel_name,
                       party_code=party_code,
                       nmi_mirn=nmi_mirn,
                       sale_status=sale_status)
 
+    form.agent.query = Agent.query.order_by(Agent.first_name, Agent.last_name)
     query_string = re.sub(r"/(\?)?", "", request.query_string)
     query_string = re.sub(r"page=[\d]*|", "", query_string)
     query_string = re.sub(r"^&|&$", "", query_string)
@@ -89,6 +92,8 @@ def sale(sale_id):
     
     sale_status_histories = SaleStatusHistory.query.filter_by(sale_id=sale_id).order_by(SaleStatusHistory.created.desc()).all()
     form = SaleForm(**sale.serialize())
+
+    form.agent.query = Agent.query.order_by(Agent.first_name, Agent.last_name)
 
     if form.validate_on_submit():
         sale_status = form.sale_status.data
@@ -120,27 +125,33 @@ def sale(sale_id):
 def upload():
     file_types = [('sale', 'Sale Details'),
                   ('cancel', 'Cancels'),
-                  ('clawback', 'Clawbacks')]
+                  ('clawback', 'Clawbacks'),
+                  ('agent', 'Agent List'),]
 
     if request.method=='POST':
         f = request.files['upload']
 
-        data = _parse_file(f)
         file_type = request.form['file_type']
+        data = _parse_file(f, file_type)
 
         if file_type == 'sale':
             for sale in data:
-                s = Sale(sale_status='Unverified', **sale)
-                db_session.add(s)
                 try:
-                    db_session.commit()
-                except IntegrityError:
+                    s = Sale(sale_status='Unverified', **sale)
+                except AgentNotFoundError:
                     db_session.rollback()
-                    flash('NMI {} has already been imported.'.format(sale['nmi_mirn']), 'danger')
+                    flash('Agent {} could not be found.'.format(sale['agent_name']), 'danger')
                 else:
-                    ssh = SaleStatusHistory(sale=s, status='Unverified')
-                    db_session.add(ssh)
-                    db_session.commit()
+                    db_session.add(s)
+                    try:
+                        db_session.commit()
+                    except IntegrityError:
+                        db_session.rollback()
+                        flash('NMI {} has already been imported.'.format(sale['nmi_mirn']), 'danger')
+                    else:
+                        ssh = SaleStatusHistory(sale=s, status='Unverified')
+                        db_session.add(ssh)
+                        db_session.commit()
 
         elif file_type == 'cancel':
             for sale in data:
@@ -170,6 +181,16 @@ def upload():
                     db_session.commit()
                 else:
                     flash('NMI {} could not be found or is already clawed back.'.format(sale['nmi_mirn']), 'danger')
+
+        elif file_type == 'agent':
+            for agent in data:
+                a = Agent(**agent)
+                db_session.add(a)
+                try:
+                    db_session.commit()
+                except IntegrityError:
+                    db_session.rollback()
+                    flash('SIDN {} has already been imported.'.format(agent['sidn']), 'danger')
 
         return redirect(url_for('upload'))
 
@@ -233,37 +254,56 @@ def agent(agent_id=None):
     return render_template('agent.html', **context)
 
 
+@app.route('/favicon.ico')
+def empty():
+    return
+
+
 def _remove_bom(line):
     return line[3:] if line.startswith(codecs.BOM_UTF8) else line
 
 
-def _parse_file(f):
+def _parse_file(f, file_type):
     f = (_remove_bom(line) for line in f)
 
     headers = next(f)
     header_lookup = {header: i for i, header in enumerate(headers.strip().split(','))}
     
     header_keys = {}
-    try:
-        header_keys['key_channel_name'] = header_lookup['chnl_dep_name']
-        header_keys['key_agent_name'] = header_lookup['agent_name']
-        header_keys['key_party_code'] = header_lookup['party_code']
-        header_keys['key_site_id'] = header_lookup['site_id']
-        header_keys['key_client_name'] = header_lookup['client_name']
-        header_keys['key_phone_no'] = header_lookup['phone_no']
-        header_keys['key_postal_suburb'] = header_lookup['postal_suburb']
-        header_keys['key_district_code'] = header_lookup['district_code']
-        header_keys['key_nmi_mirn'] = header_lookup['nmi_mirn']
-        header_keys['key_client_type'] = header_lookup['client_type']
-        header_keys['key_product_type_code'] = header_lookup['product_type_code']
-        header_keys['key_signed_date'] = header_lookup['SignedDate']
-        header_keys['key_loaded_date'] = header_lookup['LoadedDate']
-        header_keys['key_annual_consumption'] = header_lookup['annual_consumption']
-        header_keys['key_commission_value'] = header_lookup['agent_commission_value']
-    except KeyError:
-        raise
+    if file_type in {'sale', 'cancel', 'clawback'}:
+        try:
+            header_keys['key_channel_name'] = header_lookup['chnl_dep_name']
+            header_keys['key_agent_name'] = header_lookup['agent_name']
+            header_keys['key_party_code'] = header_lookup['party_code']
+            header_keys['key_site_id'] = header_lookup['site_id']
+            header_keys['key_client_name'] = header_lookup['client_name']
+            header_keys['key_phone_no'] = header_lookup['phone_no']
+            header_keys['key_postal_suburb'] = header_lookup['postal_suburb']
+            header_keys['key_district_code'] = header_lookup['district_code']
+            header_keys['key_nmi_mirn'] = header_lookup['nmi_mirn']
+            header_keys['key_client_type'] = header_lookup['client_type']
+            header_keys['key_product_type_code'] = header_lookup['product_type_code']
+            header_keys['key_signed_date'] = header_lookup['SignedDate']
+            header_keys['key_loaded_date'] = header_lookup['LoadedDate']
+            header_keys['key_annual_consumption'] = header_lookup['annual_consumption']
+            header_keys['key_commission_value'] = header_lookup['agent_commission_value']
+        except KeyError:
+            raise
+    else:
+        try:
+            header_keys['key_first_name'] = header_lookup['first_name']
+            header_keys['key_last_name'] = header_lookup['last_name']
+            header_keys['key_sidn'] = header_lookup['sidn']
+            header_keys['key_start_date'] = header_lookup['start']
+            header_keys['key_email'] = header_lookup['email']
+            header_keys['key_phone'] = header_lookup['phone']
+            header_keys['key_team'] = header_lookup['team']
+            header_keys['key_siq'] = header_lookup['siq']
+            header_keys['key_lumo_name'] = header_lookup['lumo_name']
+        except KeyError:
+            raise
 
-    return [_serialize_row(row, header_keys) for row in csv.reader(f) if row]
+    return [_serialize_row(row, header_keys, file_type) for row in csv.reader(f) if row]
 
 
 def _parse_commission_value(comm_value):
@@ -285,24 +325,36 @@ def _parse_consumption(consumption):
     return None
 
 
-def _serialize_row(row, header_keys):
+def _serialize_row(row, header_keys, file_type):
     data = {}
 
-    data['channel_name'] = row[header_keys['key_channel_name']]
-    data['agent_name'] = row[header_keys['key_agent_name']]
-    data['party_code'] = row[header_keys['key_party_code']]
-    data['site_id'] = row[header_keys['key_site_id']]
-    data['client_name'] = row[header_keys['key_client_name']]
-    data['phone_no'] = row[header_keys['key_phone_no']]
-    data['postal_suburb'] = row[header_keys['key_postal_suburb']]
-    data['district_code'] = row[header_keys['key_district_code']]
-    data['nmi_mirn'] = row[header_keys['key_nmi_mirn']]
-    data['client_type'] = row[header_keys['key_client_type']]
-    data['product_type_code'] = row[header_keys['key_product_type_code']]
-    data['signed_date'] = _parse_date(row[header_keys['key_signed_date']])
-    data['loaded_date'] = _parse_date(row[header_keys['key_loaded_date']])
-    data['annual_consumption'] = _parse_consumption(row[header_keys['key_annual_consumption']])
-    data['commission_value'] = _parse_commission_value(row[header_keys['key_commission_value']])
+    if file_type in {'sale', 'cancel', 'clawback'}:
+        data['channel_name'] = row[header_keys['key_channel_name']]
+        data['agent_name'] = row[header_keys['key_agent_name']]
+        data['party_code'] = row[header_keys['key_party_code']]
+        data['site_id'] = row[header_keys['key_site_id']]
+        data['client_name'] = row[header_keys['key_client_name']]
+        data['phone_no'] = row[header_keys['key_phone_no']]
+        data['postal_suburb'] = row[header_keys['key_postal_suburb']]
+        data['district_code'] = row[header_keys['key_district_code']]
+        data['nmi_mirn'] = row[header_keys['key_nmi_mirn']]
+        data['client_type'] = row[header_keys['key_client_type']]
+        data['product_type_code'] = row[header_keys['key_product_type_code']]
+        data['signed_date'] = _parse_date(row[header_keys['key_signed_date']])
+        data['loaded_date'] = _parse_date(row[header_keys['key_loaded_date']])
+        data['annual_consumption'] = _parse_consumption(row[header_keys['key_annual_consumption']])
+        data['commission_value'] = _parse_commission_value(row[header_keys['key_commission_value']])
+    else:
+        data['first_name'] = row[header_keys['key_first_name']]
+        data['last_name'] = row[header_keys['key_last_name']]
+        data['phone'] = row[header_keys['key_phone']]
+        data['email'] = row[header_keys['key_email']]
+        data['sidn'] = row[header_keys['key_sidn']]
+        data['team'] = row[header_keys['key_team']]
+        data['siq'] = row[header_keys['key_siq']].lower() in {'yes', 'y'}
+        data['start_date'] = _parse_date(row[header_keys['key_start_date']])
+        data['lumo_name'] = row[header_keys['key_lumo_name']]
+        data['end_date'] = None
 
     return data
 
